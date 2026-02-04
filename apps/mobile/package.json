@@ -1,0 +1,35 @@
+{
+  "name": "@swing/mobile",
+  "private": true,
+  "version": "0.1.0",
+  "main": "App.tsx",
+  "scripts": {
+    "start": "pnpm --filter @swing/shared build && expo start",
+    "android": "pnpm --filter @swing/shared build && expo start --android",
+    "ios": "pnpm --filter @swing/shared build && expo start --ios",
+    "web": "pnpm --filter @swing/shared build && expo start --web",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@react-navigation/native": "latest",
+    "@react-navigation/native-stack": "latest",
+    "@react-native-async-storage/async-storage": "latest",
+    "@swing/shared": "workspace:*",
+    "expo": "latest",
+    "expo-file-system": "latest",
+    "expo-image-picker": "latest",
+    "react": "latest",
+    "react-native": "latest",
+    "react-native-safe-area-context": "latest",
+    "react-native-screens": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/jest": "latest",
+    "@testing-library/react-native": "latest",
+    "jest": "latest",
+    "jest-expo": "latest",
+    "react-test-renderer": "latest",
+    "typescript": "latest"
+  }
+}

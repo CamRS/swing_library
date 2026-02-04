@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: swing
+      POSTGRES_PASSWORD: swing
+      POSTGRES_DB: swing_library
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb -p local/swing-library || true
+      "
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+
+  api:
+    image: node:20-alpine
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: >
+      /bin/sh -c "
+      corepack enable &&
+      pnpm install &&
+      pnpm --filter @swing/api dev
+      "
+    environment:
+      DATABASE_URL: postgres://swing:swing@postgres:5432/swing_library
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      PUBLIC_BASE_URL: http://localhost:4000
+      JWT_SECRET: dev-secret
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_BUCKET: swing-library
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+      - minio
+
+  ai:
+    image: python:3.11-slim
+    working_dir: /workspace/apps/ai
+    volumes:
+      - ./:/workspace
+    command: >
+      /bin/sh -c "
+      pip install -r requirements.txt &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    ports:
+      - "8000:8000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  minio_data:

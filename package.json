@@ -1,0 +1,14 @@
+{
+  "name": "swing-library",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "echo 'lint not configured'",
+    "test": "echo 'tests not configured'",
+    "typecheck": "tsc -b"
+  }
+}

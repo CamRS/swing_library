@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Visibility {
+  private
+  unlisted
+  shared
+}
+
+enum Handedness {
+  right
+  left
+}
+
+enum SkillLevel {
+  beginner
+  intermediate
+  advanced
+  coach
+}
+
+enum VideoAngle {
+  down_the_line
+  face_on
+  other
+}
+
+enum PPosition {
+  P1
+  P2
+  P3
+  P4
+  P5
+  P6
+  P7
+  P8
+  P9
+  P10
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  passwordHash String @map("password_hash")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile            Profile?
+  videoAssets        VideoAsset[]
+  swings             Swing[]
+  goals              Goal[]
+  progressSnapshots  ProgressSnapshot[]
+  journeyMemory      JourneyMemory[]
+}
+
+model Profile {
+  userId     String     @id @db.Uuid @map("user_id")
+  displayName String    @map("display_name")
+  bio         String?
+  handedness  Handedness?
+  skillLevel  SkillLevel? @map("skill_level")
+  avatarUrl   String?    @map("avatar_url")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VideoAsset {
+  id         String    @id @default(uuid()) @db.Uuid
+  ownerId    String    @db.Uuid @map("owner_id")
+  storageKey String    @unique @map("storage_key")
+  durationMs Int       @map("duration_ms")
+  frameRate  Decimal   @map("frame_rate") @db.Decimal(6, 2)
+  width      Int
+  height     Int
+  angle      VideoAngle?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  swings Swing[]
+}
+
+model Swing {
+  id           String      @id @default(uuid()) @db.Uuid
+  ownerId      String      @db.Uuid @map("owner_id")
+  videoAssetId String      @db.Uuid @map("video_asset_id")
+  visibility   Visibility  @default(private)
+  notes        String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  owner      User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  videoAsset VideoAsset  @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  frameTags  SwingFrameTag[]
+  analyses   SwingAnalysis[]
+  progressSnapshots ProgressSnapshot[]
+}
+
+model SwingFrameTag {
+  id          String    @id @default(uuid()) @db.Uuid
+  swingId     String    @db.Uuid @map("swing_id")
+  position    PPosition
+  frameIndex  Int       @map("frame_index")
+  timestampMs Int       @map("timestamp_ms")
+  setBy       String    @map("set_by")
+  confidence  Decimal?  @db.Decimal(4, 3)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  swing Swing @relation(fields: [swingId], references: [id], onDelete: Cascade)
+
+  @@unique([swingId, position])
+}
+
+model SwingAnalysis {
+  id              String   @id @default(uuid()) @db.Uuid
+  swingId         String   @db.Uuid @map("swing_id")
+  version         String
+  summary         String
+  recommendations Json     @default("[]")
+  metrics         Json     @default("{}")
+  confidence      Decimal  @db.Decimal(4, 3)
+  inputs          Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  swing Swing @relation(fields: [swingId], references: [id], onDelete: Cascade)
+}
+
+model Goal {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid @map("owner_id")
+  title     String
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  dueDate   DateTime? @map("due_date")
+
+  owner    User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  targets  GoalTarget[]
+}
+
+model GoalTarget {
+  id            String    @id @default(uuid()) @db.Uuid
+  goalId        String    @db.Uuid @map("goal_id")
+  position      PPosition
+  notes         String?
+  targetMetrics Json      @default("{}") @map("target_metrics")
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+}
+
+model ProgressSnapshot {
+  id         String   @id @default(uuid()) @db.Uuid
+  ownerId    String   @db.Uuid @map("owner_id")
+  swingId    String   @db.Uuid @map("swing_id")
+  recordedAt DateTime @default(now()) @map("recorded_at")
+  score      Decimal? @db.Decimal(5, 2)
+  notes      String?
+  deltas     Json     @default("{}")
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  swing Swing @relation(fields: [swingId], references: [id], onDelete: Cascade)
+}
+
+model JourneyMemory {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid @map("owner_id")
+  markdown  String
+  summary   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}

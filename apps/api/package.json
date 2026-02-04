@@ -1,0 +1,40 @@
+{
+  "name": "@swing/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @swing/shared build && tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test:unit": "pnpm --filter @swing/shared build && vitest -c vitest.config.ts --run tests/unit",
+    "test:integration": "pnpm --filter @swing/shared build && vitest -c vitest.config.ts --run tests/integration",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@fastify/cors": "latest",
+    "@fastify/jwt": "latest",
+    "@fastify/swagger": "latest",
+    "@fastify/swagger-ui": "latest",
+    "@prisma/client": "6.15.0",
+    "@aws-sdk/client-s3": "latest",
+    "@aws-sdk/s3-request-presigner": "latest",
+    "bcryptjs": "latest",
+    "fastify": "latest",
+    "pino": "latest",
+    "@swing/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/supertest": "latest",
+    "@testcontainers/postgresql": "latest",
+    "testcontainers": "latest",
+    "prisma": "6.15.0",
+    "supertest": "latest",
+    "vitest": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

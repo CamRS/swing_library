@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Swing Library",
+    "slug": "swing-library",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Swing Library to access your videos.",
+          "cameraPermission": "Allow Swing Library to access your camera."
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      }
+    }
+  }
+}
