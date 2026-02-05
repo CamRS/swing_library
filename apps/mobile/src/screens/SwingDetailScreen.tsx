@@ -18,6 +18,7 @@ export function SwingDetailScreen({ route }: { route: any }) {
   const swing = route?.params?.swing as SwingListItem | undefined;
   const videoRef = useRef<Video>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const lastSyncedFrame = useRef<number | null>(null);
   const lastScrubFrame = useRef<number | null>(null);
   const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -93,6 +94,7 @@ export function SwingDetailScreen({ route }: { route: any }) {
 
   const handleScrubStart = async () => {
     setIsScrubbing(true);
+    lastSyncedFrame.current = null;
     if (videoRef.current && isLoaded && isPlaying) {
       await videoRef.current.pauseAsync();
     }
@@ -102,10 +104,11 @@ export function SwingDetailScreen({ route }: { route: any }) {
     setIsScrubbing(false);
     setScrubFrame(null);
     lastScrubFrame.current = null;
+    lastSyncedFrame.current = null;
   };
 
   const handleScroll = (offsetX: number) => {
-    if (!totalFrames) {
+    if (!totalFrames || !isScrubbing) {
       return;
     }
 
@@ -134,6 +137,33 @@ export function SwingDetailScreen({ route }: { route: any }) {
     });
   };
 
+  const handlePlaybackStatusUpdate = (nextStatus: AVPlaybackStatus) => {
+    setStatus(nextStatus);
+    if (!nextStatus.isLoaded || isScrubbing) {
+      return;
+    }
+
+    const nextDurationMs =
+      nextStatus.durationMillis != null ? nextStatus.durationMillis : swing.durationMs;
+    const nextTotalFrames = nextDurationMs
+      ? Math.max(1, Math.round(nextDurationMs / stepMs))
+      : undefined;
+    const rawFrame = Math.round(nextStatus.positionMillis / stepMs);
+    const clampedFrame = nextTotalFrames
+      ? Math.min(Math.max(rawFrame, 0), nextTotalFrames - 1)
+      : Math.max(rawFrame, 0);
+
+    if (lastSyncedFrame.current === clampedFrame) {
+      return;
+    }
+
+    lastSyncedFrame.current = clampedFrame;
+    scrollRef.current?.scrollTo({
+      x: clampedFrame * TICK_SPACING,
+      animated: false
+    });
+  };
+
   return (
     <View style={styles.container}>
       <Video
@@ -142,8 +172,9 @@ export function SwingDetailScreen({ route }: { route: any }) {
         style={[styles.video, { height: videoHeight }]}
         resizeMode={ResizeMode.CONTAIN}
         useNativeControls={false}
-        onPlaybackStatusUpdate={setStatus}
-        progressUpdateIntervalMillis={Math.max(16, Math.round(stepMs))}
+        isLooping
+        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+        progressUpdateIntervalMillis={Math.max(8, Math.round(stepMs))}
       />
       <View style={styles.controls}>
         <View style={styles.frameMeta}>
