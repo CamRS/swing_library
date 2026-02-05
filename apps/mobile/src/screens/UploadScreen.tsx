@@ -7,7 +7,8 @@ import {
   View
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library";
 import type { VideoAngle } from "@swing/shared";
 import {
   createSwing,
@@ -18,11 +19,10 @@ import { PrimaryButton } from "../components/PrimaryButton";
 
 const angleOptions: { label: string; value: VideoAngle }[] = [
   { label: "Down-the-line", value: "down_the_line" },
-  { label: "Face-on", value: "face_on" },
-  { label: "Other", value: "other" }
+  { label: "Face-on", value: "face_on" }
 ];
 
-const frameRateOptions = [30, 60, 120];
+const DEFAULT_FRAME_RATE = 60;
 
 type UploadStatus =
   | "idle"
@@ -33,19 +33,62 @@ type UploadStatus =
   | "done"
   | "error";
 
+type SelectedFileInfo = {
+  uri: string;
+  size: number;
+};
+
 export function UploadScreen() {
   const [angle, setAngle] = useState<VideoAngle | null>(null);
-  const [frameRate, setFrameRate] = useState<number | null>(null);
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(
     null
   );
-  const [fileInfo, setFileInfo] = useState<FileSystem.FileInfo | null>(null);
+  const [fileInfo, setFileInfo] = useState<SelectedFileInfo | null>(null);
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
   const durationMs = asset?.duration ?? 0;
   const durationSec = durationMs ? Math.round(durationMs / 1000) : 0;
   const meetsLength = durationSec >= 3 && durationSec <= 10;
+
+  const resolveFileInfo = async (
+    selected: ImagePicker.ImagePickerAsset
+  ): Promise<SelectedFileInfo | null> => {
+    if (typeof selected.fileSize === "number" && selected.fileSize > 0) {
+      return { uri: selected.uri, size: selected.fileSize };
+    }
+
+    const directInfo = await FileSystem.getInfoAsync(selected.uri, {
+      size: true
+    });
+    if (typeof directInfo.size === "number" && directInfo.size > 0) {
+      return { uri: selected.uri, size: directInfo.size };
+    }
+
+    if (!selected.assetId) {
+      return null;
+    }
+
+    const permission = await MediaLibrary.requestPermissionsAsync();
+    if (!permission.granted) {
+      return null;
+    }
+
+    const assetInfo = await MediaLibrary.getAssetInfoAsync(selected.assetId);
+    const resolvedUri = assetInfo.localUri ?? assetInfo.uri;
+    if (!resolvedUri) {
+      return null;
+    }
+
+    const assetFileInfo = await FileSystem.getInfoAsync(resolvedUri, {
+      size: true
+    });
+    if (typeof assetFileInfo.size !== "number" || assetFileInfo.size <= 0) {
+      return null;
+    }
+
+    return { uri: resolvedUri, size: assetFileInfo.size };
+  };
 
   const pickVideo = async () => {
     setStatus("selecting");
@@ -59,7 +102,7 @@ export function UploadScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ["videos"],
       quality: 1
     });
 
@@ -69,15 +112,24 @@ export function UploadScreen() {
     }
 
     const selected = result.assets[0];
+    const info = await resolveFileInfo(selected);
+    if (!info) {
+      setAsset(null);
+      setFileInfo(null);
+      setStatus("error");
+      setError(
+        "Unable to read file size. Try selecting another video or allow full Photos access."
+      );
+      return;
+    }
     setAsset(selected);
-    const info = await FileSystem.getInfoAsync(selected.uri, { size: true });
     setFileInfo(info);
     setStatus("idle");
   };
 
   const handleUpload = async () => {
-    if (!asset || !angle || !frameRate) {
-      setError("Select a video, angle, and frame rate before uploading.");
+    if (!asset || !angle) {
+      setError("Select a video and angle before uploading.");
       return;
     }
 
@@ -85,7 +137,7 @@ export function UploadScreen() {
     setError(null);
 
     try {
-      if (!fileInfo?.size) {
+      if (!fileInfo) {
         throw new Error("Unable to read file size.");
       }
 
@@ -98,16 +150,17 @@ export function UploadScreen() {
       }
 
       const fileName =
-        asset.fileName ?? asset.uri.split("/").pop() ?? "swing.mp4";
+        asset.fileName ?? fileInfo.uri.split("/").pop() ?? "swing.mp4";
       const contentType = asset.mimeType ?? "video/mp4";
       const sizeBytes = fileInfo.size;
+      const uploadUri = fileInfo.uri;
 
       const uploadResponse = await requestSwingUpload({
         fileName,
         contentType,
         sizeBytes,
         durationMs,
-        frameRate,
+        frameRate: DEFAULT_FRAME_RATE,
         width: asset.width,
         height: asset.height,
         angle
@@ -116,7 +169,7 @@ export function UploadScreen() {
       setStatus("uploading");
       const uploadResult = await uploadToSignedUrl(
         uploadResponse.uploadUrl,
-        asset.uri,
+        uploadUri,
         uploadResponse.requiredHeaders
       );
 
@@ -149,7 +202,6 @@ export function UploadScreen() {
         <Text style={styles.cardTitle}>Requirements</Text>
         <Text style={styles.cardBody}>Angle: down-the-line or face-on.</Text>
         <Text style={styles.cardBody}>Length: 3–10 seconds.</Text>
-        <Text style={styles.cardBody}>Frame rate: 60 fps preferred.</Text>
       </View>
 
       <View style={styles.card}>
@@ -178,31 +230,6 @@ export function UploadScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Frame Rate</Text>
-        <View style={styles.angleRow}>
-          {frameRateOptions.map((rate) => (
-            <Pressable
-              key={rate}
-              onPress={() => setFrameRate(rate)}
-              style={[
-                styles.anglePill,
-                frameRate === rate && styles.anglePillActive
-              ]}
-            >
-              <Text
-                style={[
-                  styles.angleLabel,
-                  frameRate === rate && styles.angleLabelActive
-                ]}
-              >
-                {rate} fps
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.card}>
         <Text style={styles.cardTitle}>Selected Video</Text>
         <Text style={styles.cardBody}>
           {asset?.fileName ?? asset?.uri ?? "No video selected."}
@@ -224,7 +251,7 @@ export function UploadScreen() {
       <PrimaryButton
         label={status === "done" ? "Uploaded" : "Upload"}
         onPress={handleUpload}
-        disabled={!asset || !angle || !frameRate || status === "uploading"}
+        disabled={!asset || !angle || status === "uploading"}
       />
     </ScrollView>
   );

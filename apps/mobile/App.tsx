@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
 import { LibraryScreen } from "./src/screens/LibraryScreen";
 import { UploadScreen } from "./src/screens/UploadScreen";
+import { SwingDetailScreen } from "./src/screens/SwingDetailScreen";
 import { StatusBar } from "expo-status-bar";
 import { AuthScreen } from "./src/screens/AuthScreen";
 import { getAuthToken } from "./src/lib/api";
@@ -42,6 +43,11 @@ export default function App() {
       <Stack.Navigator>
         <Stack.Screen name="Library" component={LibraryScreen} />
         <Stack.Screen name="Upload" component={UploadScreen} />
+        <Stack.Screen
+          name="SwingDetail"
+          component={SwingDetailScreen}
+          options={{ title: "Swing" }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

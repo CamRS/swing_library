@@ -115,3 +115,5 @@ Primary stack and libraries to use unless explicitly changed.
 - When a task is completed, ask for written confirmation that it is done and working.
 - After confirmation, cross it off in `TODO.md` and add a reference to the implementation (file paths or commands).
 - When finishing any task, suggest the next items from `TODO.md`.
+- Always try running required commands yourself first; only ask the user if you cannot execute them in the current environment.
+- If a required tool or dependency is missing, attempt to download/install it before asking the user for manual steps.

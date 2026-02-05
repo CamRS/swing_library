@@ -18,6 +18,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-secret",
   s3: {
     endpoint: process.env.S3_ENDPOINT,
+    publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
     region: process.env.S3_REGION ?? "us-east-1",
     accessKeyId: requireEnv("S3_ACCESS_KEY"),
     secretAccessKey: requireEnv("S3_SECRET_KEY"),

@@ -36,6 +36,10 @@ export const apiContracts = {
       method: "GET",
       path: "/v1/swings"
     },
+    listShared: {
+      method: "GET",
+      path: "/v1/swings/shared"
+    },
     getById: {
       method: "GET",
       path: "/v1/swings/:id"

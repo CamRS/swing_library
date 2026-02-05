@@ -75,7 +75,23 @@ export interface ListSwingsQuery {
   limit?: number;
 }
 
-export interface ListSwingsResponse extends Paginated<Swing> {}
+export interface SwingListItem extends Swing {
+  previewUrl: string;
+  frameRate: number;
+  durationMs: number;
+  width: number;
+  height: number;
+}
+
+export interface ListSwingsResponse extends Paginated<SwingListItem> {}
+
+export interface ListSharedSwingsQuery {
+  ownerId?: string;
+  cursor?: Cursor;
+  limit?: number;
+}
+
+export interface ListSharedSwingsResponse extends Paginated<SwingListItem> {}
 
 export interface FrameTagInput {
   position: PPosition;

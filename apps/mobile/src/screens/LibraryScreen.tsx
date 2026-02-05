@@ -1,13 +1,33 @@
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View
+} from "react-native";
+import { ResizeMode, Video } from "expo-av";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { listSwings } from "../lib/api";
-import type { Swing } from "@swing/shared";
+import type { SwingListItem } from "@swing/shared";
+
+const NUM_COLUMNS = 3;
+const GRID_GAP = 8;
+const HORIZONTAL_PADDING = 20;
 
 export function LibraryScreen({ navigation }: { navigation: any }) {
-  const [swings, setSwings] = useState<Swing[]>([]);
+  const [swings, setSwings] = useState<SwingListItem[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
+  const containerWidth = width || 360;
+  const itemSize = Math.floor(
+    (containerWidth -
+      HORIZONTAL_PADDING * 2 -
+      GRID_GAP * (NUM_COLUMNS - 1)) /
+      NUM_COLUMNS
+  );
 
   const loadSwings = async () => {
     setStatus("loading");
@@ -29,43 +49,87 @@ export function LibraryScreen({ navigation }: { navigation: any }) {
     return unsubscribe;
   }, [navigation]);
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
+  const header = (
+    <View style={styles.header}>
       <Text style={styles.title}>Your Swing Library</Text>
       <Text style={styles.subtitle}>
-        Browse your swings and shared libraries. Start by uploading a new swing.
+        Browse your swings and review the latest uploads.
       </Text>
+      <Text style={styles.sectionTitle}>Your Swings</Text>
+      {status === "loading" ? (
+        <Text style={styles.cardBody}>Loading swings...</Text>
+      ) : null}
+      {status === "error" ? (
+        <Text style={styles.error}>{error}</Text>
+      ) : null}
+    </View>
+  );
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Recent Swings</Text>
-        {status === "loading" ? (
-          <Text style={styles.cardBody}>Loading swings...</Text>
-        ) : null}
-        {status === "error" ? (
-          <Text style={styles.error}>{error}</Text>
-        ) : null}
-        {status === "idle" && swings.length === 0 ? (
-          <Text style={styles.cardBody}>No swings yet.</Text>
-        ) : null}
-        {swings.map((swing) => (
-          <View key={swing.id} style={styles.row}>
-            <Text style={styles.cardBody}>Swing {swing.id.slice(0, 6)}</Text>
-            <Text style={styles.cardHint}>
-              {new Date(swing.createdAt).toLocaleDateString()}
-            </Text>
-          </View>
-        ))}
-      </View>
+  const emptyState =
+    status === "idle" ? <Text style={styles.cardBody}>No swings yet.</Text> : null;
 
-      <PrimaryButton label="Upload Swing" onPress={() => navigation.navigate("Upload")} />
-    </ScrollView>
+  return (
+    <FlatList
+      data={swings}
+      keyExtractor={(item) => item.id}
+      numColumns={NUM_COLUMNS}
+      contentContainerStyle={styles.container}
+      ListHeaderComponent={header}
+      ListEmptyComponent={emptyState}
+      columnWrapperStyle={styles.gridRow}
+      ListFooterComponent={
+        <View style={styles.footer}>
+          <PrimaryButton
+            label="Upload Swing"
+            onPress={() => navigation.navigate("Upload")}
+          />
+        </View>
+      }
+      renderItem={({ item, index }) => {
+        const marginRight = (index + 1) % NUM_COLUMNS === 0 ? 0 : GRID_GAP;
+        return (
+          <Pressable
+            onPress={() => navigation.navigate("SwingDetail", { swing: item })}
+            style={[
+              styles.gridItem,
+              {
+                width: itemSize,
+                height: itemSize,
+                marginRight
+              }
+            ]}
+          >
+            {item.previewUrl ? (
+              <Video
+                source={{ uri: item.previewUrl }}
+                style={styles.gridVideo}
+                resizeMode={ResizeMode.COVER}
+                isMuted
+                shouldPlay={false}
+              />
+            ) : (
+              <View style={styles.previewFallback}>
+                <Text style={styles.previewFallbackText}>
+                  Preview unavailable
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        );
+      }}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
-    gap: 16
+    paddingHorizontal: HORIZONTAL_PADDING,
+    paddingTop: 20,
+    paddingBottom: 32
+  },
+  header: {
+    gap: 8,
+    marginBottom: 12
   },
   title: {
     fontSize: 28,
@@ -76,15 +140,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#3C4A46"
   },
-  card: {
-    backgroundColor: "#F4F6F5",
-    borderRadius: 12,
-    padding: 16
-  },
-  cardTitle: {
+  sectionTitle: {
     fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6
+    fontWeight: "600"
   },
   cardBody: {
     color: "#4A5B55"
@@ -93,9 +151,28 @@ const styles = StyleSheet.create({
     color: "#5B6B66",
     fontSize: 13
   },
-  row: {
-    marginTop: 8,
-    gap: 4
+  previewFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1
+  },
+  previewFallbackText: {
+    color: "#5B6B66"
+  },
+  gridItem: {
+    backgroundColor: "#DDE3E0",
+    borderRadius: 8,
+    overflow: "hidden"
+  },
+  gridRow: {
+    marginBottom: GRID_GAP
+  },
+  gridVideo: {
+    height: "100%",
+    width: "100%"
+  },
+  footer: {
+    paddingTop: 16
   },
   error: {
     color: "#9A2B2B",

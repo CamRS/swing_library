@@ -4,6 +4,8 @@ import type {
   ApiError,
   CreateSwingRequest,
   CreateSwingResponse,
+  ListSharedSwingsQuery,
+  ListSharedSwingsResponse,
   ListSwingsQuery,
   ListSwingsResponse,
   UploadSwingRequest,
@@ -11,7 +13,7 @@ import type {
 } from "@swing/shared";
 import { prisma } from "../db";
 import { isValidVisibility, validateUploadRequest } from "../lib/validation";
-import { assertObjectExists, createUploadUrl } from "../lib/storage";
+import { assertObjectExists, createDownloadUrl, createUploadUrl } from "../lib/storage";
 import { serializeSwing } from "../lib/serialize";
 
 function badRequest(
@@ -30,10 +32,11 @@ function badRequest(
 const DEFAULT_VISIBILITY = "private";
 
 export async function registerSwingRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", app.authenticate);
+  const auth = { preHandler: [app.authenticate] };
 
   app.get<{ Querystring: ListSwingsQuery }>(
     "/v1/swings",
+    auth,
     async (request) => {
       const requestedLimit = Number(request.query.limit ?? 20);
       const limit = Number.isFinite(requestedLimit)
@@ -42,6 +45,7 @@ export async function registerSwingRoutes(app: FastifyInstance) {
       const cursor = request.query.cursor;
       const swings = await prisma.swing.findMany({
         where: { ownerId: request.user.sub },
+        include: { videoAsset: true },
         orderBy: { createdAt: "desc" },
         take: limit + 1,
         ...(cursor
@@ -54,8 +58,73 @@ export async function registerSwingRoutes(app: FastifyInstance) {
 
       const hasNext = swings.length > limit;
       const items = hasNext ? swings.slice(0, limit) : swings;
+      const responseItems = await Promise.all(
+        items.map(async (swing) => ({
+          ...serializeSwing(swing),
+          previewUrl: await createDownloadUrl({
+            key: swing.videoAsset.storageKey
+          }),
+          frameRate: Number(swing.videoAsset.frameRate),
+          durationMs: swing.videoAsset.durationMs,
+          width: swing.videoAsset.width,
+          height: swing.videoAsset.height
+        }))
+      );
+
       const response: ListSwingsResponse = {
-        items: items.map(serializeSwing),
+        items: responseItems,
+        nextCursor: hasNext ? items[items.length - 1]?.id : undefined
+      };
+
+      return response;
+    }
+  );
+
+  app.get<{ Querystring: ListSharedSwingsQuery }>(
+    "/v1/swings/shared",
+    auth,
+    async (request) => {
+      const requestedLimit = Number(request.query.limit ?? 20);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(requestedLimit, 50)
+        : 20;
+      const cursor = request.query.cursor;
+      const ownerId = request.query.ownerId;
+      const swings = await prisma.swing.findMany({
+        where: {
+          visibility: "shared",
+          ...(ownerId
+            ? { ownerId }
+            : { ownerId: { not: request.user.sub } })
+        },
+        include: { videoAsset: true },
+        orderBy: { createdAt: "desc" },
+        take: limit + 1,
+        ...(cursor
+          ? {
+              cursor: { id: cursor },
+              skip: 1
+            }
+          : {})
+      });
+
+      const hasNext = swings.length > limit;
+      const items = hasNext ? swings.slice(0, limit) : swings;
+      const responseItems = await Promise.all(
+        items.map(async (swing) => ({
+          ...serializeSwing(swing),
+          previewUrl: await createDownloadUrl({
+            key: swing.videoAsset.storageKey
+          }),
+          frameRate: Number(swing.videoAsset.frameRate),
+          durationMs: swing.videoAsset.durationMs,
+          width: swing.videoAsset.width,
+          height: swing.videoAsset.height
+        }))
+      );
+
+      const response: ListSharedSwingsResponse = {
+        items: responseItems,
         nextCursor: hasNext ? items[items.length - 1]?.id : undefined
       };
 
@@ -65,6 +134,7 @@ export async function registerSwingRoutes(app: FastifyInstance) {
 
   app.post<{ Body: UploadSwingRequest }>(
     "/v1/swings/uploads",
+    auth,
     async (request, reply) => {
       const details = validateUploadRequest(request.body);
       if (Object.keys(details).length > 0) {
@@ -110,6 +180,7 @@ export async function registerSwingRoutes(app: FastifyInstance) {
 
   app.post<{ Body: CreateSwingRequest }>(
     "/v1/swings",
+    auth,
     async (request, reply) => {
       if (!request.body?.videoAssetId) {
         return badRequest(reply, "Missing videoAssetId", {

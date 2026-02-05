@@ -1,9 +1,10 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   AuthResponse,
   CreateSwingRequest,
   CreateSwingResponse,
+  ListSharedSwingsResponse,
   ListSwingsResponse,
   LoginRequest,
   RegisterRequest,
@@ -87,6 +88,18 @@ export function createSwing(payload: CreateSwingRequest) {
 
 export function listSwings() {
   return apiFetch<ListSwingsResponse>("/v1/swings");
+}
+
+export function listSharedSwings(ownerId?: string) {
+  const params = new URLSearchParams();
+  if (ownerId) {
+    params.set("ownerId", ownerId);
+  }
+
+  const query = params.toString();
+  return apiFetch<ListSharedSwingsResponse>(
+    `/v1/swings/shared${query ? `?${query}` : ""}`
+  );
 }
 
 export async function uploadToSignedUrl(

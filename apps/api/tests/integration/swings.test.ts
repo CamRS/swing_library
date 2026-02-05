@@ -16,6 +16,7 @@ import {
 import supertest from "supertest";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 let container: StartedPostgreSqlContainer;
 let minioContainer: StartedTestContainer;
@@ -25,17 +26,20 @@ let app: Awaited<ReturnType<typeof import("../../src/app").buildApp>>;
 let prisma: typeof import("../../src/db").prisma;
 const bucketName = "swing-library";
 let authToken: string;
+let userId: string;
 
 describe("swing uploads", () => {
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:15-alpine").start();
 
     minioContainer = await new GenericContainer("minio/minio")
-      .withEnv("MINIO_ROOT_USER", "minio")
-      .withEnv("MINIO_ROOT_PASSWORD", "minio123")
+      .withEnvironment({
+        MINIO_ROOT_USER: "minio",
+        MINIO_ROOT_PASSWORD: "minio123"
+      })
       .withCommand(["server", "/data", "--console-address", ":9001"])
       .withExposedPorts(9000)
-      .withWaitStrategy(Wait.forListeningPort())
+      .withWaitStrategy(Wait.forListeningPorts())
       .start();
 
     const minioEndpoint = `http://${minioContainer.getHost()}:${minioContainer.getMappedPort(
@@ -94,6 +98,7 @@ describe("swing uploads", () => {
       .expect(201);
 
     authToken = registerRes.body.token;
+    userId = registerRes.body.user.id;
   });
 
   afterAll(async () => {
@@ -151,6 +156,11 @@ describe("swing uploads", () => {
       .expect(200);
 
     expect(listRes.body.items.length).toBe(1);
+    expect(listRes.body.items[0].previewUrl).toBeTruthy();
+    expect(listRes.body.items[0].durationMs).toBe(3500);
+    expect(listRes.body.items[0].frameRate).toBeCloseTo(60);
+    expect(listRes.body.items[0].width).toBe(1080);
+    expect(listRes.body.items[0].height).toBe(1920);
 
     const head = await s3Client.send(
       new HeadObjectCommand({
@@ -160,5 +170,114 @@ describe("swing uploads", () => {
     );
 
     expect(head.ContentLength).toBeGreaterThan(0);
+  });
+
+  it("lists shared swings from other users by default", async () => {
+    const otherRegisterRes = await request
+      .post("/v1/auth/register")
+      .send({
+        email: "other@swing.local",
+        password: "strongpassword"
+      })
+      .expect(201);
+
+    const otherUserId = otherRegisterRes.body.user.id;
+
+    const myAsset = await prisma.videoAsset.create({
+      data: {
+        ownerId: userId,
+        storageKey: `uploads/${userId}/${randomUUID()}`,
+        durationMs: 3200,
+        frameRate: "60",
+        width: 1080,
+        height: 1920,
+        angle: "down_the_line"
+      }
+    });
+
+    const otherSharedAsset = await prisma.videoAsset.create({
+      data: {
+        ownerId: otherUserId,
+        storageKey: `uploads/${otherUserId}/${randomUUID()}`,
+        durationMs: 3200,
+        frameRate: "60",
+        width: 1080,
+        height: 1920,
+        angle: "face_on"
+      }
+    });
+
+    const otherUnlistedAsset = await prisma.videoAsset.create({
+      data: {
+        ownerId: otherUserId,
+        storageKey: `uploads/${otherUserId}/${randomUUID()}`,
+        durationMs: 3200,
+        frameRate: "60",
+        width: 1080,
+        height: 1920,
+        angle: "face_on"
+      }
+    });
+
+    const mySharedSwing = await prisma.swing.create({
+      data: {
+        ownerId: userId,
+        videoAssetId: myAsset.id,
+        visibility: "shared"
+      }
+    });
+
+    const otherSharedSwing = await prisma.swing.create({
+      data: {
+        ownerId: otherUserId,
+        videoAssetId: otherSharedAsset.id,
+        visibility: "shared"
+      }
+    });
+
+    const otherUnlistedSwing = await prisma.swing.create({
+      data: {
+        ownerId: otherUserId,
+        videoAssetId: otherUnlistedAsset.id,
+        visibility: "unlisted"
+      }
+    });
+
+    const listRes = await request
+      .get("/v1/swings/shared")
+      .set("Authorization", `Bearer ${authToken}`)
+      .expect(200);
+
+    const ids = listRes.body.items.map((item: { id: string }) => item.id);
+    expect(ids).toContain(otherSharedSwing.id);
+    expect(ids).not.toContain(otherUnlistedSwing.id);
+    expect(ids).not.toContain(mySharedSwing.id);
+    expect(
+      listRes.body.items.every((item: { previewUrl: string }) => item.previewUrl)
+    ).toBe(true);
+    expect(
+      listRes.body.items.every(
+        (item: {
+          durationMs: number;
+          frameRate: number;
+          width: number;
+          height: number;
+        }) =>
+          Number.isFinite(item.durationMs) &&
+          Number.isFinite(item.frameRate) &&
+          Number.isFinite(item.width) &&
+          Number.isFinite(item.height)
+      )
+    ).toBe(true);
+    expect(
+      listRes.body.items.every(
+        (item: { visibility: string }) => item.visibility === "shared"
+      )
+    ).toBe(true);
+    expect(
+      listRes.body.items.every(
+        (item: { ownerId: string }) => item.ownerId !== userId
+      )
+    ).toBe(true);
   });
 });
