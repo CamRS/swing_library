@@ -42,10 +42,15 @@ services:
     working_dir: /workspace
     volumes:
       - ./:/workspace
+      - workspace_node_modules:/workspace/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+      - shared_node_modules:/workspace/packages/shared/node_modules
     command: >
       /bin/sh -c "
       corepack enable &&
-      pnpm install &&
+      export CI=1 &&
+      pnpm install --force &&
+      pnpm --filter @swing/api db:generate &&
       pnpm --filter @swing/api dev
       "
     environment:
@@ -83,3 +88,6 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  workspace_node_modules:
+  api_node_modules:
+  shared_node_modules:

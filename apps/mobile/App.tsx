@@ -5,6 +5,7 @@ import { ActivityIndicator, View } from "react-native";
 import { LibraryScreen } from "./src/screens/LibraryScreen";
 import { UploadScreen } from "./src/screens/UploadScreen";
 import { SwingDetailScreen } from "./src/screens/SwingDetailScreen";
+import { SwingAnalyzeScreen } from "./src/screens/SwingAnalyzeScreen";
 import { StatusBar } from "expo-status-bar";
 import { AuthScreen } from "./src/screens/AuthScreen";
 import { getAuthToken } from "./src/lib/api";
@@ -47,6 +48,11 @@ export default function App() {
           name="SwingDetail"
           component={SwingDetailScreen}
           options={{ title: "Swing" }}
+        />
+        <Stack.Screen
+          name="SwingAnalyze"
+          component={SwingAnalyzeScreen}
+          options={{ title: "Analyze" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

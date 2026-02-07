@@ -1,6 +1,7 @@
 import type {
   Goal,
   JourneyMemory,
+  SwingAnalysisStatus,
   Profile,
   ProgressSnapshot,
   Swing,
@@ -109,15 +110,23 @@ export interface UpsertSwingFrameTagsResponse {
   tags: SwingFrameTag[];
 }
 
+export interface ListSwingFrameTagsResponse {
+  tags: SwingFrameTag[];
+}
+
 export interface RequestSwingAnalysisRequest {
-  swingId: string;
   goalId?: string;
   notes?: string;
 }
 
 export interface RequestSwingAnalysisResponse {
   analysisId: string;
-  status: "queued" | "processing" | "completed" | "failed";
+  status: SwingAnalysisStatus;
+}
+
+export interface ListSwingAnalysesQuery {
+  cursor?: Cursor;
+  limit?: number;
 }
 
 export interface ListSwingAnalysesResponse extends Paginated<SwingAnalysis> {}

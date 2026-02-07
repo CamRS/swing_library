@@ -9,12 +9,18 @@ import {
 } from "react-native";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import type { SwingListItem } from "@swing/shared";
+import { PrimaryButton } from "../components/PrimaryButton";
 
 const SCREEN_PADDING = 20;
 const TICK_SPACING = 12;
 const MAJOR_TICK_EVERY = 5;
-
-export function SwingDetailScreen({ route }: { route: any }) {
+export function SwingDetailScreen({
+  route,
+  navigation
+}: {
+  route: any;
+  navigation: any;
+}) {
   const swing = route?.params?.swing as SwingListItem | undefined;
   const videoRef = useRef<Video>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -227,6 +233,12 @@ export function SwingDetailScreen({ route }: { route: any }) {
           </Pressable>
         </View>
       </View>
+      <View style={styles.actions}>
+        <PrimaryButton
+          label="Analyze Swing"
+          onPress={() => navigation.navigate("SwingAnalyze", { swing })}
+        />
+      </View>
       <View style={styles.meta}>
         <Text style={styles.title}>Swing {swing.id.slice(0, 6)}</Text>
         <Text style={styles.subtitle}>
@@ -326,6 +338,9 @@ const styles = StyleSheet.create({
   },
   controlTextPrimary: {
     color: "#FFFFFF"
+  },
+  actions: {
+    marginTop: 4
   },
   meta: {
     gap: 6

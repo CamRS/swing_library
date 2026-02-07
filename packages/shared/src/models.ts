@@ -66,10 +66,17 @@ export interface SwingFrameTag {
   createdAt: ISODateString;
 }
 
+export type SwingAnalysisStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed";
+
 export interface SwingAnalysis {
   id: UUID;
   swingId: UUID;
   version: string;
+  status: SwingAnalysisStatus;
   summary: string;
   recommendations: string[];
   metrics: Record<string, number>;

@@ -4,17 +4,34 @@ import type {
   ApiError,
   CreateSwingRequest,
   CreateSwingResponse,
+  ListSwingAnalysesQuery,
+  ListSwingAnalysesResponse,
+  ListSwingFrameTagsResponse,
   ListSharedSwingsQuery,
   ListSharedSwingsResponse,
   ListSwingsQuery,
   ListSwingsResponse,
+  RequestSwingAnalysisRequest,
+  RequestSwingAnalysisResponse,
+  SwingAnalysisStatus,
   UploadSwingRequest,
-  UploadSwingResponse
+  UploadSwingResponse,
+  UpsertSwingFrameTagsRequest,
+  UpsertSwingFrameTagsResponse
 } from "@swing/shared";
 import { prisma } from "../db";
-import { isValidVisibility, validateUploadRequest } from "../lib/validation";
+import {
+  isValidVisibility,
+  validateAnalysisRequest,
+  validateFrameTagsRequest,
+  validateUploadRequest
+} from "../lib/validation";
 import { assertObjectExists, createDownloadUrl, createUploadUrl } from "../lib/storage";
-import { serializeSwing } from "../lib/serialize";
+import {
+  serializeSwing,
+  serializeSwingAnalysis,
+  serializeSwingFrameTag
+} from "../lib/serialize";
 
 function badRequest(
   reply: FastifyReply,
@@ -23,13 +40,69 @@ function badRequest(
 ) {
   const error: ApiError = {
     code: "bad_request",
-    message,
-    details
+    message
   };
+  if (details) {
+    error.details = details;
+  }
   return reply.code(400).send(error);
 }
 
 const DEFAULT_VISIBILITY = "private";
+const INITIAL_ANALYSIS_VERSION = "initial-v1";
+const INITIAL_ANALYSIS_MODEL_ID = "initial-analysis-stub-v1";
+const ANALYSIS_QUEUE_WINDOW_MS = 1200;
+const ANALYSIS_PROCESSING_WINDOW_MS = 4500;
+
+function getAnalysisStatus(createdAt: Date): SwingAnalysisStatus {
+  const elapsedMs = Date.now() - createdAt.getTime();
+  if (elapsedMs < ANALYSIS_QUEUE_WINDOW_MS) {
+    return "queued";
+  }
+
+  if (elapsedMs < ANALYSIS_PROCESSING_WINDOW_MS) {
+    return "processing";
+  }
+
+  return "completed";
+}
+
+function buildInitialAnalysisSummary(tagCount: number) {
+  if (tagCount === 0) {
+    return "Initial analysis job queued with no frame tags yet.";
+  }
+
+  return `Captured ${tagCount} tagged position${tagCount === 1 ? "" : "s"} for initial analysis.`;
+}
+
+function buildInitialAnalysisRecommendations(tagCount: number) {
+  if (tagCount === 0) {
+    return [
+      "Tag at least P1, P4, and P7 to improve analysis quality.",
+      "Re-run analysis after tagging key positions."
+    ];
+  }
+
+  if (tagCount < 5) {
+    return [
+      "Add more checkpoints (P2, P3, P5, and P6) for better coverage.",
+      "Keep camera angle and framing consistent between swings."
+    ];
+  }
+
+  return [
+    "Good frame-tag coverage. Next phase will use pose estimation for deeper feedback.",
+    "Use this baseline to compare your next upload."
+  ];
+}
+
+function createInitialAnalysisMetrics(tagCount: number, durationMs: number) {
+  return {
+    taggedPositions: tagCount,
+    tagCoverage: Number((tagCount / 10).toFixed(3)),
+    durationMs
+  };
+}
 
 export async function registerSwingRoutes(app: FastifyInstance) {
   const auth = { preHandler: [app.authenticate] };
@@ -40,7 +113,7 @@ export async function registerSwingRoutes(app: FastifyInstance) {
     async (request) => {
       const requestedLimit = Number(request.query.limit ?? 20);
       const limit = Number.isFinite(requestedLimit)
-        ? Math.min(requestedLimit, 50)
+        ? Math.min(Math.max(requestedLimit, 1), 50)
         : 20;
       const cursor = request.query.cursor;
       const swings = await prisma.swing.findMany({
@@ -86,7 +159,7 @@ export async function registerSwingRoutes(app: FastifyInstance) {
     async (request) => {
       const requestedLimit = Number(request.query.limit ?? 20);
       const limit = Number.isFinite(requestedLimit)
-        ? Math.min(requestedLimit, 50)
+        ? Math.min(Math.max(requestedLimit, 1), 50)
         : 20;
       const cursor = request.query.cursor;
       const ownerId = request.query.ownerId;
@@ -228,6 +301,224 @@ export async function registerSwingRoutes(app: FastifyInstance) {
         swing: serializeSwing(swing)
       };
       return reply.code(201).send(response);
+    }
+  );
+
+  app.post<{ Params: { id: string }; Body: RequestSwingAnalysisRequest }>(
+    "/v1/swings/:id/analysis",
+    auth,
+    async (request, reply) => {
+      const details = validateAnalysisRequest(request.body);
+      if (Object.keys(details).length > 0) {
+        return badRequest(reply, "Invalid analysis request", details);
+      }
+
+      const swing = await prisma.swing.findFirst({
+        where: {
+          id: request.params.id,
+          ownerId: request.user.sub
+        },
+        include: {
+          videoAsset: true
+        }
+      });
+
+      if (!swing) {
+        return reply.code(404).send({
+          code: "not_found",
+          message: "Swing not found"
+        });
+      }
+
+      const frameTags = await prisma.swingFrameTag.findMany({
+        where: { swingId: swing.id },
+        orderBy: { position: "asc" }
+      });
+      const tagCount = frameTags.length;
+
+      const requestContext: Record<string, string> = {};
+      if (request.body?.goalId) {
+        requestContext.goalId = request.body.goalId;
+      }
+      if (request.body?.notes) {
+        requestContext.notes = request.body.notes;
+      }
+
+      const analysis = await prisma.swingAnalysis.create({
+        data: {
+          swingId: swing.id,
+          version: INITIAL_ANALYSIS_VERSION,
+          summary: buildInitialAnalysisSummary(tagCount),
+          recommendations: buildInitialAnalysisRecommendations(tagCount),
+          metrics: createInitialAnalysisMetrics(
+            tagCount,
+            swing.videoAsset.durationMs
+          ),
+          confidence: Math.min(0.9, 0.35 + tagCount * 0.04),
+          inputs: {
+            frameTagIds: frameTags.map((tag) => tag.id),
+            modelId: INITIAL_ANALYSIS_MODEL_ID,
+            ...(Object.keys(requestContext).length > 0
+              ? {
+                  request: requestContext
+                }
+              : {})
+          }
+        }
+      });
+
+      const response: RequestSwingAnalysisResponse = {
+        analysisId: analysis.id,
+        status: "queued"
+      };
+
+      return reply.code(202).send(response);
+    }
+  );
+
+  app.get<{ Params: { id: string }; Querystring: ListSwingAnalysesQuery }>(
+    "/v1/swings/:id/analysis",
+    auth,
+    async (request, reply) => {
+      const swing = await prisma.swing.findFirst({
+        where: {
+          id: request.params.id,
+          ownerId: request.user.sub
+        }
+      });
+
+      if (!swing) {
+        return reply.code(404).send({
+          code: "not_found",
+          message: "Swing not found"
+        });
+      }
+
+      const requestedLimit = Number(request.query.limit ?? 20);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(requestedLimit, 50)
+        : 20;
+      const cursor = request.query.cursor;
+
+      const analyses = await prisma.swingAnalysis.findMany({
+        where: { swingId: swing.id },
+        orderBy: { createdAt: "desc" },
+        take: limit + 1,
+        ...(cursor
+          ? {
+              cursor: { id: cursor },
+              skip: 1
+            }
+          : {})
+      });
+
+      const hasNext = analyses.length > limit;
+      const items = hasNext ? analyses.slice(0, limit) : analyses;
+      const response: ListSwingAnalysesResponse = {
+        items: items.map((analysis) => ({
+          ...serializeSwingAnalysis(analysis),
+          status: getAnalysisStatus(analysis.createdAt)
+        }))
+      };
+      if (hasNext && items.length > 0) {
+        response.nextCursor = items[items.length - 1].id;
+      }
+
+      return response;
+    }
+  );
+
+  app.put<{ Params: { id: string }; Body: UpsertSwingFrameTagsRequest }>(
+    "/v1/swings/:id/frame-tags",
+    auth,
+    async (request, reply) => {
+      const details = validateFrameTagsRequest(request.body);
+      if (Object.keys(details).length > 0) {
+        return badRequest(reply, "Invalid frame tags request", details);
+      }
+
+      const swing = await prisma.swing.findFirst({
+        where: {
+          id: request.params.id,
+          ownerId: request.user.sub
+        }
+      });
+
+      if (!swing) {
+        return reply.code(404).send({
+          code: "not_found",
+          message: "Swing not found"
+        });
+      }
+
+      await prisma.$transaction(
+        request.body.tags.map((tag) =>
+          prisma.swingFrameTag.upsert({
+            where: {
+              swingId_position: {
+                swingId: swing.id,
+                position: tag.position
+              }
+            },
+            update: {
+              frameIndex: tag.frameIndex,
+              timestampMs: tag.timestampMs,
+              setBy: tag.setBy,
+              confidence: tag.confidence ?? null
+            },
+            create: {
+              swingId: swing.id,
+              position: tag.position,
+              frameIndex: tag.frameIndex,
+              timestampMs: tag.timestampMs,
+              setBy: tag.setBy,
+              confidence: tag.confidence ?? null
+            }
+          })
+        )
+      );
+
+      const tags = await prisma.swingFrameTag.findMany({
+        where: { swingId: swing.id },
+        orderBy: { position: "asc" }
+      });
+
+      const response: UpsertSwingFrameTagsResponse = {
+        tags: tags.map((tag) => serializeSwingFrameTag(tag))
+      };
+
+      return response;
+    }
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/v1/swings/:id/frame-tags",
+    auth,
+    async (request, reply) => {
+      const swing = await prisma.swing.findFirst({
+        where: {
+          id: request.params.id,
+          ownerId: request.user.sub
+        }
+      });
+
+      if (!swing) {
+        return reply.code(404).send({
+          code: "not_found",
+          message: "Swing not found"
+        });
+      }
+
+      const tags = await prisma.swingFrameTag.findMany({
+        where: { swingId: swing.id },
+        orderBy: { position: "asc" }
+      });
+
+      const response: ListSwingFrameTagsResponse = {
+        tags: tags.map((tag) => serializeSwingFrameTag(tag))
+      };
+
+      return response;
     }
   );
 }

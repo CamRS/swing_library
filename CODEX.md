@@ -40,6 +40,42 @@ Primary stack and libraries to use unless explicitly changed.
 - `infra`: IaC, deployment templates, CI/CD.
 - `docs`: Architecture notes, product decisions, and specs.
 
+## Local Dev & Testing (Codex Runbook)
+Use this runbook when the task requires running the stack or tests locally.
+
+### Local infra (DB + MinIO)
+- Start services: `docker compose -f docker-compose.dev.yml up -d postgres minio minio-init`
+- Verify MinIO health: `curl http://localhost:9000/minio/health/ready`
+
+### API server (recommended: Docker)
+- Start API: `docker compose -f docker-compose.dev.yml up -d api`
+- Check startup logs (first run can take a while while dependencies install): `docker compose -f docker-compose.dev.yml logs -f api`
+- Verify health: `curl http://localhost:4000/health`
+- Important: do not run both Docker API and host API at the same time because both bind `:4000`.
+
+### API server (host fallback)
+- Ensure env file exists: `cp apps/api/.env.example apps/api/.env` (edit values if needed).
+- Load env for Prisma/API: `set -a; source apps/api/.env; set +a`
+- Run migrations: `pnpm --filter @swing/api db:deploy`
+- Start API: `pnpm --filter @swing/api dev`
+- Known-good detached start command (used for iOS simulator debugging):
+  `env DATABASE_URL=postgresql://swing:swing@127.0.0.1:5433/swing_library API_HOST=0.0.0.0 API_PORT=4000 PUBLIC_BASE_URL=http://localhost:4000 JWT_SECRET=dev-secret S3_ENDPOINT=http://localhost:9000 S3_PUBLIC_ENDPOINT=http://localhost:9000 S3_REGION=us-east-1 S3_ACCESS_KEY=minio S3_SECRET_KEY=minio123 S3_BUCKET=swing-library pnpm --filter @swing/api dev > /tmp/swing-api.log 2>&1 < /dev/null & disown`
+- If port `4000` is already taken: check listener with `lsof -nP -iTCP:4000 -sTCP:LISTEN`, stop the stale process (`kill <pid>`), then restart.
+- Tail host API logs when debugging: `tail -f /tmp/swing-api.log`
+
+### Mobile app
+- Start Expo iOS with explicit API URL: `EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 pnpm --filter @swing/mobile ios -- --host localhost --port 8082 --clear`
+- If the app keeps stale network state, fully close Expo Go in simulator and relaunch.
+
+### Networking quick checks
+- If Library shows `Network request failed` or hangs on `Loading swings...`: verify API is up with `curl http://localhost:4000/health`.
+- Verify DB + storage are up: `docker compose -f docker-compose.dev.yml ps`.
+- Recheck the swings endpoint with auth if needed: `GET /v1/swings` (should return `200` with JSON `items`).
+
+### Tests
+- Unit: `pnpm --filter @swing/api test:unit`
+- Integration: `pnpm --filter @swing/api test:integration`
+
 ## Core Data Model (Conceptual)
 - User, Profile, Membership.
 - Swing (video asset + metadata).
